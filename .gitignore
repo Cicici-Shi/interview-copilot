@@ -1,0 +1,10 @@
+kb/
+reports/
+__pycache__/
+.pytest_cache/
+bench/out/
+
+# 真实面试的转写和标注，不公开
+bench/labels/
+bench/relation/cases-*.json
+bench/relation/labels-*.json

@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent 开发面经</title>
+<style>
+:root {
+  --bg: #f7f6f2; --panel: #ffffff; --ink: #1b1b19; --muted: #8a877e; --faint: #c4c1b8; --line: #e6e3dc;
+  --accent: #1f6feb; --next-bg: #fff3c4; --todo: #b42318; --todo-bg: #fde8e7; --warn-bg: #b42318; --them: #b4530a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121211; --panel: #1b1b19; --ink: #eeede8; --muted: #8f8c83; --faint: #4a4844; --line: #2c2b28;
+    --accent: #5b9dff; --next-bg: #3a3214; --todo: #ff8a80; --todo-bg: #3b1d1b; --warn-bg: #8f1d15; --them: #f0a35e;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.6 -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+/* 出问题才出现，平时不占地方 */
+#alert { display: none; background: var(--warn-bg); color: #fff; padding: 8px 16px; font-size: 15px; }
+#alert.on { display: block; }
+
+/* 实时：单列窄栏，贴着屏幕顶部（摄像头正下方），视线不用离开镜头太远 */
+#stage { max-width: 1100px; margin: 0 auto; padding: 8px 16px 24px; }
+#bar { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); min-height: 28px; }
+#bar button {
+  font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  border-radius: 6px; padding: 2px 12px; cursor: pointer;
+}
+#hint { color: var(--muted); padding: 40px 0; font-size: 15px; }
+
+/* 面试官字幕：只留最近两三句，听不清、听不懂英文时扫一眼 */
+#caption { font-size: 15px; line-height: 1.45; color: var(--muted); border-left: 3px solid var(--them); padding: 2px 0 2px 10px; margin: 6px 0 4px; }
+#caption:empty { display: none; }
+#caption .live { color: var(--ink); }
+
+.opener { font-size: 19px; line-height: 1.4; font-weight: 650; margin-top: 8px; }
+.points { font-size: 14px; color: var(--muted); margin-top: 2px; }
+/* 骨架：小节横排成几列，一题一屏看全 */
+.script { margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 18px; line-height: 1.45; }
+.script .bridge { grid-column: 1 / -1; font-size: 16px; font-weight: 600; color: var(--accent); }
+.script .bridge.add { color: var(--ink); font-weight: 500; border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 4px; }
+.script .bridge.add b { color: var(--them); margin-right: 2px; }
+.script .sec { border-left: 2px solid var(--line); padding-left: 8px; }
+.script .head { font-size: 13px; color: var(--muted); }
+.script .head b { color: var(--ink); font-weight: 650; font-size: 14px; margin-right: 6px; }
+.script .item { font-size: 15px; padding-left: .9em; position: relative; }
+.script .item::before { content: "·"; position: absolute; left: .2em; color: var(--muted); }
+.script .said { color: var(--faint) !important; }
+.script .said b { color: var(--faint); }
+.script .next { background: var(--next-bg); border-radius: 3px; }
+.opener:empty, .points:empty, .script:empty { display: none; }
+.q, .dbg { display: none; }
+
+/* 回放：左边完整转写对照，右边卡片带原题和调试信息，用来核对答得对不对 */
+body.review { display: grid; grid-template-columns: minmax(280px, 36%) 1fr; height: 100%; }
+body.review #alert { grid-column: 1 / -1; }
+body.review #transcript { display: block; }
+body.review #caption { display: none; }
+body.review #stage { max-width: none; margin: 0; overflow-y: auto; height: 100vh; }
+body.review .q { display: block; font-size: 14px; color: var(--muted); }
+body.review .dbg { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; }
+body.review .card { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 18px; }
+body.review .card.old { font-size: 13px; }
+body.review .card.skipped { opacity: .45; }
+body.review .card.merged-away { padding-top: 4px; margin-top: 6px; border-top: 1px dashed var(--line); }
+#transcript { display: none; overflow-y: auto; height: 100vh; padding: 12px 16px; border-right: 1px solid var(--line); font-size: 14px; }
+.utt { margin: 0 0 8px; }
+.utt b { font-size: 12px; margin-right: 6px; }
+.utt.interviewer b { color: var(--them); }
+.utt.me b { color: #1a7f4b; }
+.utt.partial { color: var(--muted); }
+.lyric { cursor: pointer; border-radius: 6px; padding: 2px 6px; margin: 0 -6px 6px; }
+.lyric:hover { background: var(--line); }
+.lyric.future { opacity: .4; }
+.lyric.now { background: #fff3c4; opacity: 1; }
+.lyric i { font-style: normal; font-size: 11px; color: var(--muted); margin-right: 6px; font-variant-numeric: tabular-nums; }
+#coding .ch { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+#coding .ch #cclock { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+#coding .ch button { margin-left: auto; }
+#coding .cs { margin-bottom: 14px; }
+#coding .cl { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+#coding .cb { white-space: pre-wrap; }
+#coding .say .cb { font-size: 20px; font-weight: 600; }
+#coding .wrong .cb { color: #b42318; font-weight: 600; }
+#coding pre.code { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--line); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 0; }
+#coding .stale { opacity: .55; }
+#coding #cstage { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--line); }
+#coding .warn .cb { color: #b54708; font-weight: 600; }
+.seg { color: var(--muted); font-size: 12px; border-top: 1px dashed var(--line); padding-top: 6px; margin: 12px 0 8px; }
+@media (max-width: 760px) {
+  body.review { grid-template-columns: 1fr; grid-template-rows: 35vh 1fr; }
+  #transcript, body.review #stage { height: auto; }
+  .script { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div id="alert"></div>
+<aside id="transcript"></aside>
+<section id="stage">
+  <div id="bar"><button id="toggle">开始</button></div>
+  <div id="caption"></div>
+  <div id="hint">点「开始」，共享会议所在的标签页（桌面会议软件选整个屏幕），勾选「共享音频」，再允许麦克风。戴耳机。自己练习就在共享面板点取消，只开麦克风，说的话当面试官的问题。</div>
+  <div id="cards"></div>
+  <div id="coding" hidden>
+    <div class="ch"><b id="ctitle">手撕</b><span id="cstage"></span><span id="cclock"></span><button id="cstop">结束手撕</button></div>
+    <div class="cs warn" data-s="题目" hidden><div class="cl">题目</div><div class="cb"></div></div>
+    <div class="cs" data-s="思路判断"><div class="cl">思路判断</div><div class="cb"></div></div>
+    <div class="cs say" data-s="现在说"><div class="cl">现在说</div><div class="cb"></div></div>
+    <div class="cs" data-s="我的代码"><div class="cl">我的代码</div><div class="cb"></div></div>
+    <div class="cs" data-s="复杂度与边界"><div class="cl">复杂度与边界</div><div class="cb"></div></div>
+    <div class="cs" data-s="完整代码"><div class="cl">完整代码</div><pre class="cb code"></pre></div>
+  </div>
+</section>
+<script>
+const MODE = "__MODE__"; // live：实时，只放要看的；replay：回放核对，带完整转写和调试信息
+const REVIEW = MODE === "replay";
+const CH = { interviewer: 0, me: 1 };
+const $ = (id) => document.getElementById(id);
+if (REVIEW) {
+  document.body.classList.add("review");
+  $("toggle").remove();
+  $("hint").textContent = "回放：录音由本地服务直接喂入。";
+}
+
+// ---------------------------------------------------------------- 出问题才提示
+const problems = {};
+function problem(key, text) {
+  if (text) problems[key] = text; else delete problems[key];
+  const all = Object.values(problems);
+  $("alert").textContent = all.join("　");
+  $("alert").classList.toggle("on", all.length > 0);
+}
+
+// ---------------------------------------------------------------- 连接
+let ws, capture = null;
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.binaryType = "arraybuffer";
+  ws.onmessage = (e) => receive(JSON.parse(e.data));
+  ws.onopen = () => problem("ws");
+  ws.onclose = () => { problem("ws", "和本地服务断开，正在重连"); stopCapture(); setTimeout(connect, 3000); };
+}
+connect();
+
+// ---------------------------------------------------------------- 采音
+const WORKLET = `
+class Tap extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Int16Array(1600); this.n = 0; }
+  process(inputs) {
+    const x = inputs[0][0];
+    if (!x) return true;
+    for (let i = 0; i < x.length; i++) {
+      const s = Math.max(-1, Math.min(1, x[i]));
+      this.buf[this.n++] = s < 0 ? s * 32768 : s * 32767;
+      if (this.n === this.buf.length) {
+        this.port.postMessage(this.buf.buffer, [this.buf.buffer]);
+        this.buf = new Int16Array(1600); this.n = 0;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("tap", Tap);`;
+
+async function startCapture() {
+  // 先要共享，再要麦克风：共享面板要用户手势触发，放后面会因为等麦克风授权而失效。
+  // 共享面板点了取消就只开麦克风：面试官那路一直没声时，服务端把我说的话当问题（自己练习）。
+  let display = null;
+  try { display = await navigator.mediaDevices.getDisplayMedia({
+    video: true,
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    systemAudio: "include",
+  }); } catch (e) { if (e.name !== "NotAllowedError") throw e; }
+  if (display && !display.getAudioTracks().length) {
+    display.getTracks().forEach((t) => t.stop());
+    throw new Error("共享时没勾选「共享音频」，听不到面试官。重新点开始，勾选共享音频。");
+  }
+  const mic = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  const ctx = new AudioContext({ sampleRate: 16000 }); // 浏览器负责重采样到 16k
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
+  const sink = ctx.createGain(); sink.gain.value = 0; sink.connect(ctx.destination); // 只为让节点被拉动，不出声
+  const tap = (stream, speaker) => {
+    const src = ctx.createMediaStreamSource(new MediaStream(stream.getAudioTracks()));
+    const node = new AudioWorkletNode(ctx, "tap", { channelCount: 1, channelCountMode: "explicit", channelInterpretation: "speakers" });
+    node.port.onmessage = (e) => send(speaker, e.data);
+    src.connect(node).connect(sink);
+  };
+  if (display) {
+    tap(display, "interviewer");
+    display.getVideoTracks()[0].onended = () => stop(); // 浏览器条上点了「停止共享」
+  }
+  tap(mic, "me");
+  capture = { ctx, streams: [display, mic].filter(Boolean), solo: !display, heard: { interviewer: 0, me: 0 }, since: Date.now() };
+  capture.watch = setInterval(watchSilence, 1000);
+  ws.send(JSON.stringify({ type: "start" }));
+  $("hint").textContent = display ? "在听。面试官问完题，这里出提示。" : "没共享会议，只开了麦克风。把问题说完，停一下，这里出提示。";
+}
+
+function send(speaker, buf) {
+  const pcm = new Int16Array(buf);
+  let peak = 0;
+  for (let i = 0; i < pcm.length; i += 8) peak = Math.max(peak, Math.abs(pcm[i]));
+  if (capture && peak > 300) capture.heard[speaker] = Date.now();
+  if (!ws || ws.readyState !== 1) return;
+  const out = new Uint8Array(buf.byteLength + 1);
+  out[0] = CH[speaker];
+  out.set(new Uint8Array(buf), 1);
+  ws.send(out);
+}
+
+// 音量条不常驻：哪一路长时间完全没声音才提示（共享错了标签页、麦克风被占）
+function watchSilence() {
+  if (!capture) return;
+  const now = Date.now(), quiet = (s) => now - Math.max(capture.heard[s], capture.since) > 20000;
+  problem("mute-interviewer", !capture.solo && quiet("interviewer") ? "20 秒没收到会议声音：共享的是会议那个标签页吗？说的话会先当问题处理。" : "");
+  problem("mute-me", quiet("me") ? "20 秒没收到麦克风声音" : "");
+}
+
+function stopCapture() {
+  if (!capture) return;
+  clearInterval(capture.watch);
+  capture.streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+  capture.ctx.close();
+  capture = null;
+  problem("mute-interviewer"); problem("mute-me");
+  setButton();
+}
+
+function stop() {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "stop" }));
+  stopCapture();
+}
+
+function setButton() { if (!REVIEW) $("toggle").textContent = capture ? "结束" : "开始"; }
+
+if (!REVIEW) $("toggle").onclick = async () => {
+  if (capture) return stop();
+  problem("start");
+  try { await startCapture(); } catch (e) { problem("start", e.message || String(e)); stopCapture(); }
+  setButton();
+};
+
+// ---------------------------------------------------------------- 转写
+// 实时：只显示面试官最近几句（字幕）；回放：左栏完整对话
+const CAPTION_LINES = 3;
+const said = []; // 面试官定稿的句子
+let theirPartial = "";
+function caption() {
+  const box = $("caption");
+  box.replaceChildren(...said.slice(-(theirPartial ? CAPTION_LINES - 1 : CAPTION_LINES)).map((t) => document.createTextNode(t + " ")));
+  if (theirPartial) box.appendChild(Object.assign(document.createElement("span"), { className: "live", textContent: theirPartial }));
+}
+
+const partials = {};
+function addLine(speaker, text, partial) {
+  if (speaker === "interviewer") {
+    if (partial) theirPartial = text; else { said.push(text); theirPartial = ""; }
+    caption();
+  }
+  if (!REVIEW || tape) return; // 复看时左栏是整场歌词，不逐条追加
+  const box = $("transcript");
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+  let el = partials[speaker];
+  if (!el) {
+    el = document.createElement("p");
+    el.className = `utt ${speaker}`;
+    el.innerHTML = `<b>${speaker === "me" ? "我" : "面试官"}</b><span></span>`;
+    box.appendChild(el);
+  }
+  el.querySelector("span").textContent = text;
+  el.classList.toggle("partial", partial);
+  partials[speaker] = partial ? el : null;
+  if (partial && !text) { el.remove(); partials[speaker] = null; }
+  if (stick) box.scrollTop = box.scrollHeight;
+}
+
+// ---------------------------------------------------------------- 念到哪了
+// 骨架按行；拿我开口后的转写去对：哪行关键词的字二元组过半出现在我说的话里，就算说过了。
+// 只往前走不往回退，下一句高亮。
+const bigrams = (s) => {
+  const t = s.replace(/[\s，。！？；、,.!?;:：“”"（）()【】+✓↑↓→·\/]/g, "").toLowerCase();
+  const out = new Set();
+  for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2));
+  return out;
+};
+function track(c) {
+  if (!c.sentences.length) return;
+  const heard = bigrams(c.spoken + c.spokenPartial);
+  for (let i = c.progress + 1; i < c.sentences.length; i++) {
+    const b = c.sentences[i].grams;
+    if (!b.size) continue;
+    let hit = 0;
+    b.forEach((g) => { if (heard.has(g)) hit++; });
+    if (hit / b.size >= 0.5) c.progress = i;
+  }
+  c.sentences.forEach((s, i) => {
+    s.el.classList.toggle("said", i <= c.progress);
+    s.el.classList.toggle("next", c.spoken !== "" && i === c.progress + 1);
+  });
+}
+
+const escape = (s) => s.replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch]);
+function renderScript(c) {
+  // 骨架：小节标题一行（或「标题：关键词」），下面「· 」开头的关键词行；「过渡：」是要直接说的整句。
+  // 每次整份重画（最多十几行），「念到哪了」按行算，进度存在 c.progress 里不受重画影响
+  const lines = c.slowText.split("\n").map((l) => l.replace(/\*\*/g, "").replace(/^#+\s*/, "").trimEnd()).filter((l) => l.trim());
+  const frag = document.createDocumentFragment();
+  c.sentences = [];
+  let sec = null;
+  const section = () => { sec = document.createElement("div"); sec.className = "sec"; frag.appendChild(sec); return sec; };
+  for (const raw of lines) {
+    const line = raw.trim();
+    const el = document.createElement("div");
+    const item = line.match(/^[·•\-*]\s*(.*)$/);
+    const head = !item && line.match(/^([^：:]{1,8})[：:]\s*(.*)$/);
+    let spoken = "";
+    if (item) {
+      el.className = "item";
+      spoken = item[1];
+      el.innerHTML = mark(spoken);
+      (sec || section()).appendChild(el);
+    } else if (head && ["过渡", "补充", "追问", "更正"].includes(head[1])) {
+      el.className = head[1] === "过渡" ? "bridge" : "bridge add";
+      spoken = head[2];
+      el.innerHTML = head[1] === "过渡" ? mark(spoken) : `<b>${head[1]}</b>　${mark(spoken)}`;
+      frag.appendChild(el);
+      sec = null;
+    } else {
+      el.className = "head";
+      spoken = head ? head[2] : "";
+      el.innerHTML = head ? `<b>${escape(head[1])}</b>${mark(head[2])}` : `<b>${escape(line)}</b>`;
+      section().appendChild(el);
+    }
+    if (spoken) c.sentences.push({ el, grams: bigrams(spoken) });
+  }
+  c.script.replaceChildren(frag);
+  if (c.slowText) c.points.textContent = ""; // 骨架出来了，快答的要点就重复了，只留开口句
+  c.opener.hidden = !!c.script.querySelector(".bridge"); // 骨架自带过渡句时，开口句那句过渡就重复了
+  track(c);
+}
+const mark = (t) => escape(t).replace(/【待补[^】]*】/g, (x) => `<span class="todo">${x}</span>`);
+
+// ---------------------------------------------------------------- 卡片
+// 一张卡片 = 面试官的一轮。同一轮补充后重问（qid 变、turn 不变）原地更新，新版出字前旧内容不动。
+// 卡片等快答过了门控或慢答判为问题才上屏；附和、过渡语不打扰。实时只留当前一张。
+const cards = {};
+let current = null;
+
+function turnCard(turn) {
+  if (cards[turn]) return cards[turn];
+  const el = document.createElement("article");
+  el.className = "card";
+  el.innerHTML = `<div class="q"></div><div class="opener"></div><div class="points"></div><div class="script"></div><div class="dbg"></div>`;
+  const c = { el, turn, q: el.querySelector(".q"), opener: el.querySelector(".opener"), points: el.querySelector(".points"),
+    script: el.querySelector(".script"), dbg: el.querySelector(".dbg"), shown: false, info: {},
+    fastText: "", slowText: "", parts: {}, fastOwner: null, sentences: [], progress: -1, spoken: "", spokenPartial: "" };
+  cards[turn] = c;
+  return c;
+}
+
+function show(c) {
+  if (c.shown) return;
+  c.shown = true;
+  $("hint")?.remove();
+  if (current && current !== c) {
+    // 临时卡（我答过之后面试官再开口）：原卡先变淡留着，等慢答判出是补充/追问还是新问题
+    if (REVIEW || c.provisional) current.el.classList.add("old"); else current.el.remove();
+  }
+  current = c;
+  $("cards").prepend(c.el);
+}
+
+function hide(c) {
+  // 判为不用答：实时直接拿掉，回放留着变淡好核对
+  if (!c.shown) return;
+  if (REVIEW) { c.el.classList.add("skipped"); return; }
+  c.el.remove(); c.shown = false;
+  if (current === c) current = c.prevCard ? restore(c.prevCard) : null;
+}
+
+function restore(c) {
+  // 把原卡提回最上面当当前卡
+  c.el.classList.remove("old", "skipped");
+  if (!c.el.isConnected) c.shown = false;
+  c.shown = true;
+  $("cards").prepend(c.el);
+  return c;
+}
+
+function onRelation(c, e) {
+  if (e.data.merge_into != null) {
+    // 补充/追问：撤掉临时卡，后面的字会写进原卡
+    const target = cards[e.data.merge_into];
+    if (REVIEW) {
+      // 回放里留一行痕迹方便核对，不整张显示（实时模式直接撤掉）
+      c.el.classList.add("merged-away");
+      c.el.innerHTML = `<div class="dbg">已并入卡 ${e.data.merge_into}（${e.text}）：${escape(c.q.textContent.slice(0, 60))}…</div>`;
+    } else { c.el.remove(); c.shown = false; }
+    if (target) { target.merged = true; current = restore(target); debug(target, "并入", e.text); }
+  } else if (c.prevCard && !REVIEW && c.prevCard !== c) {
+    c.prevCard.el.remove(); c.prevCard.shown = false; // 新问题：原卡撤掉
+  }
+}
+
+function renderFast(c) {
+  const lines = c.fastText.split("\n").map((l) => l.replace(/^\s*[-*\d.、]+\s*/, "").replace(/^\[常识\]\s*/, "").trim()).filter(Boolean);
+  c.opener.textContent = lines[0] || "";
+  c.points.textContent = c.slowText ? "" : lines.slice(1).join(" · ");
+}
+
+function debug(c, key, value) {
+  if (!REVIEW) return;
+  c.info[key] = value;
+  c.dbg.textContent = Object.entries(c.info).map(([k, v]) => `${k}：${v}`).join("　");
+}
+
+function onEvent(e) {
+  // 同一轮面试官补充：各版本按先后拼在一起，后面的只写新增（「补充：」开头），已经出来的内容不动
+  const c = turnCard(e.turn);
+  switch (e.kind) {
+    case "question":
+      c.qid = e.qid;
+      if (!c.merged) c.q.textContent = e.text; // 并进来的补充/追问不覆盖主问题，它们在下面按小节显示
+      if (e.data.provisional && !c.shown) { c.provisional = true; c.prevCard = current; }
+      break;
+    case "relation": onRelation(c, e); break;
+    case "kb_hit": debug(c, "知识库", e.text); break;
+    case "gate": debug(c, "门控", e.text); break;
+    case "fast_token":
+      if (c.fastOwner == null) c.fastOwner = e.qid; // 一轮只要一个开口句
+      if (c.fastOwner !== e.qid) break;
+      c.fastText += e.text;
+      renderFast(c);
+      show(c);
+      if (c.info["快答"] == null) debug(c, "快答", `${e.elapsed.toFixed(1)}s`);
+      break;
+    case "slow_plan":
+      // 前面几版都判为不是问题时这一版是完整作答，残句那几版的东西不要了
+      if (e.data.mode === "full") for (const k of Object.keys(c.parts)) if (+k < e.qid) delete c.parts[k];
+      show(c);
+      c.el.classList.remove("skipped");
+      debug(c, "题型", e.data.type);
+      debug(c, "改写", e.text);
+      break;
+    case "slow_token":
+      c.parts[e.qid] = (c.parts[e.qid] || "") + e.text;
+      c.slowText = Object.keys(c.parts).sort((x, y) => x - y).map((k) => c.parts[k]).filter((t) => t.trim() !== "无").join("\n");
+      renderScript(c);
+      if (c.info["口述稿"] == null) debug(c, "口述稿", `${e.elapsed.toFixed(1)}s`);
+      break;
+    case "slow_skip":
+      if (!Object.values(c.parts).some((t) => t.trim() && t.trim() !== "无")) hide(c); // 已经有骨架就留着
+      break;
+    case "error": show(c); problem("err" + c.turn, "这题生成出错：" + e.text.slice(0, 80)); break;
+  }
+}
+
+function onMine(text, partial) {
+  // 我说的话喂给当前卡片，推进「念到哪了」
+  const c = current;
+  if (!c) return;
+  if (partial) c.spokenPartial = text; else { c.spoken += text; c.spokenPartial = ""; }
+  track(c);
+}
+
+function handle(m) {
+  switch (m.type) {
+    case "partial":
+      addLine(m.speaker, m.text, true);
+      if (m.speaker === "me") onMine(m.text, true);
+      break;
+    case "final":
+      addLine(m.speaker, m.text, false);
+      if (m.speaker === "me") onMine(m.text, false);
+      break;
+    case "event": onEvent(m); break;
+    case "status":
+      problem("asr-" + m.speaker, m.text === "转写已连接" ? "" : `${m.speaker === "me" ? "麦克风" : "面试官"}转写：${m.text}`);
+      break;
+    case "segment":
+      if (REVIEW) $("transcript").appendChild(Object.assign(document.createElement("div"), { className: "seg", textContent: "录音 " + m.text }));
+      if (REVIEW && m.audio) followAudio(m);
+      break;
+    case "coding_mode": case "coding_page": case "coding_start": case "coding_token": case "coding_done": case "coding_error":
+      onCoding(m);
+      break;
+    case "session":
+      if (m.text === "结束") ["interviewer", "me"].forEach((s) => problem("asr-" + s));
+      break;
+  }
+}
+
+// ---------------------------------------------------------------- 手撕卡（LEETCODE.md）：一张卡分五块原地更新，新一版写到哪块就换哪块
+const CODING = ["题目", "思路判断", "现在说", "我的代码", "复杂度与边界", "完整代码"];
+let coding = { on: false, since: 0, gen: 0, text: "", code: "" };
+function codingSections(text) {
+  const out = {};
+  const re = /【(阶段|题目|思路判断|现在说|完整代码|我的代码|复杂度与边界)】/g;
+  const marks = [...text.matchAll(re)];
+  marks.forEach((m, i) => { out[m[1]] = text.slice(m.index + m[0].length, i + 1 < marks.length ? marks[i + 1].index : undefined).trim(); });
+  return out;
+}
+function renderCoding(done) {
+  const sec = codingSections(coding.text);
+  if (sec["阶段"]) $("cstage").textContent = sec["阶段"].split("\n")[0];
+  for (const name of CODING) {
+    const box = document.querySelector(`#coding .cs[data-s="${name}"]`);
+    let body = sec[name];
+    if (name === "完整代码" && body != null) {
+      body = body.replace(/^```[\w+#-]*\n?/, "").replace(/\n?```\s*$/, "");
+      if (body.trim() === "同上") body = coding.code; else if (done) coding.code = body;
+    }
+    // 新一版还没写到这块：留着上一版，变淡
+    box.classList.toggle("stale", body == null);
+    if (body != null) box.querySelector(".cb").textContent = body;
+    if (name === "题目" && body != null) box.hidden = /^完整/.test(body); // 题目完整就不占地方
+    if (name === "思路判断" && body != null) box.classList.toggle("wrong", /不对|错|有问题|反例/.test(body.split("\n")[0]));
+  }
+}
+function onCoding(m) {
+  if (m.type === "coding_mode") {
+    coding.on = m.on; coding.since = m.t ?? 0; coding.sinceWall = Date.now();
+    $("coding").hidden = !m.on; $("cards").hidden = m.on;
+    if (m.on) { coding.text = ""; coding.code = ""; $("ctitle").textContent = "手撕"; $("cstage").textContent = ""; }
+  } else if (m.type === "coding_page") {
+    $("ctitle").textContent = `${m.title || "手撕"}${m.lang ? " · " + m.lang : ""}`;
+  } else if (m.type === "coding_start") {
+    coding.gen = m.gen; coding.text = "";
+  } else if (m.type === "coding_token" && m.gen === coding.gen) {
+    coding.text += m.text; renderCoding(false);
+  } else if (m.type === "coding_done" && m.gen === coding.gen) {
+    coding.text = m.text; renderCoding(true);
+  } else if (m.type === "coding_error") {
+    problem("coding", "手撕卡生成出错：" + m.text.slice(0, 80));
+  }
+}
+$("cstop").onclick = () => ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: "coding_stop" }));
+setInterval(() => {
+  if (!coding.on) return;
+  // 实时按本机时钟；复看按录音进度（lastAt 是复看放到的日志时间）
+  const s = Math.max(0, Math.round(tape ? lastAt - coding.since : (Date.now() - coding.sinceWall) / 1000));
+  $("cclock").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}, 1000);
+
+// ---------------------------------------------------------------- 复看：整场日志一次收下，按录音进度条放；往回拖就清空重画
+let tape = null, tapeOffset = 0, played = 0, lastAt = -1;
+function receive(m) {
+  if (m.type === "playback") { tapeOffset = m.offset; return; }
+  if (m.type === "tape") return startTape(m.messages);
+  handle(m);
+}
+const mmss = (s) => `${String(Math.floor(Math.max(0, s) / 60)).padStart(2, "0")}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, "0")}`;
+let lyrics = [], userScrolled = 0;
+function startTape(messages) {
+  tape = messages;
+  $("hint").textContent = "复看：点左边任意一句跳过去；空格播放/暂停，← → 跳 5 秒。";
+  player = Object.assign(document.createElement("audio"), { src: "/audio", controls: true, preload: "auto" });
+  player.style.flex = "1";
+  const rate = document.createElement("span");
+  for (const r of [1, 1.25, 1.5, 2]) {
+    const b = Object.assign(document.createElement("button"), { textContent: r + "×" });
+    b.onclick = () => { player.playbackRate = r; rate.querySelectorAll("button").forEach((x) => x.style.fontWeight = x === b ? "700" : ""); };
+    rate.appendChild(b);
+  }
+  $("bar").append(player, rate);
+  buildLyrics();
+  const step = () => {
+    const at = player.currentTime + tapeOffset;
+    if (at < lastAt) resetView();
+    while (played < tape.length && tape[played].t <= at) handle(tape[played++]);
+    lastAt = at;
+    follow(at);
+  };
+  ["timeupdate", "seeked"].forEach((k) => player.addEventListener(k, step));
+  setInterval(() => { if (!player.paused) step(); }, 200);
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT") return;
+    if (e.code === "Space") { e.preventDefault(); player.paused ? player.play() : player.pause(); }
+    if (e.code === "ArrowLeft") { e.preventDefault(); player.currentTime -= 5; }
+    if (e.code === "ArrowRight") { e.preventDefault(); player.currentTime += 5; }
+  });
+  $("transcript").addEventListener("wheel", () => userScrolled = Date.now());
+  step();
+}
+function buildLyrics() {
+  // 一句的开头 = 连续增长的那串 partial 的第一条（文字不再接着上一条长，就算新起一句）；
+  // 没定稿就消失的碎片会让开头偏早，所以再按字数卡一下：每字最多 0.3 秒，加 1.5 秒余量
+  const since = {}, prev = {}, rows = [];
+  for (const m of tape) {
+    if (m.type === "partial") {
+      const p = prev[m.speaker] || "";
+      if (!p || !m.text.startsWith(p.slice(0, 2))) since[m.speaker] = m.t;
+      prev[m.speaker] = m.text;
+    }
+    if (m.type !== "final") continue;
+    const start = Math.max(since[m.speaker] ?? m.t - 2, m.t - m.text.length * 0.3 - 1.5);
+    since[m.speaker] = null; prev[m.speaker] = "";
+    if (start - tapeOffset >= 0) rows.push({ start, m }); // 录音开始前（开场前自测）不要
+  }
+  rows.sort((a, b) => a.start - b.start);
+  const box = $("transcript");
+  box.replaceChildren();
+  lyrics = [];
+  for (const { start, m } of rows) {
+    const el = document.createElement("p");
+    el.className = `utt lyric ${m.speaker} future`;
+    el.innerHTML = `<i>${mmss(start - tapeOffset)}</i><b>${m.speaker === "me" ? "我" : "面试官"}</b>`;
+    el.appendChild(document.createTextNode(m.text));
+    el.onclick = () => { player.currentTime = Math.max(0, start - tapeOffset - 0.5); player.play(); userScrolled = 0; };
+    box.appendChild(el);
+    lyrics.push({ start, el });
+  }
+}
+let nowLine = null;
+function follow(at) {
+  let i = lyrics.findIndex((l) => l.start > at);
+  if (i < 0) i = lyrics.length;
+  const cur = lyrics[i - 1]?.el || null;
+  lyrics.forEach((l, k) => l.el.classList.toggle("future", k >= i));
+  if (cur !== nowLine) {
+    nowLine?.classList.remove("now");
+    cur?.classList.add("now");
+    nowLine = cur;
+    if (cur && Date.now() - userScrolled > 4000) cur.scrollIntoView({ block: "center" }); // 自己翻看时 4 秒内不抢滚动
+  }
+}
+function resetView() {
+  played = 0;
+  $("cards").replaceChildren();
+  for (const k of Object.keys(cards)) delete cards[k];
+  for (const k of Object.keys(partials)) delete partials[k];
+  current = null; said.length = 0; theirPartial = "";
+}
+
+// ---------------------------------------------------------------- 回放放原音：按服务端喂到哪儿对齐，跑偏超过 0.5 秒就拉回
+let segment = null, player = null;
+function followAudio(m) {
+  segment = m;
+  if (!player) {
+    player = Object.assign(document.createElement("audio"), { src: "/audio", preload: "auto" });
+    const b = Object.assign(document.createElement("button"), { textContent: "播放声音" });
+    b.onclick = () => { if (player.paused) { syncAudio(); player.play(); b.textContent = "静音"; } else { player.pause(); b.textContent = "播放声音"; } };
+    $("bar").appendChild(b);
+    setInterval(() => { if (!player.paused) syncAudio(); }, 2000);
+  }
+}
+function syncAudio() {
+  const at = segment.start + (Date.now() / 1000 - segment.wall);
+  if (Math.abs(player.currentTime - at) > 0.5) player.currentTime = at;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新问题还是补充</title>
+<style>
+:root { --bg: #f7f6f3; --panel: #fff; --ink: #1f1f1f; --muted: #8a8a8a; --line: #e4e2dc; --them: #b4541a; --me: #1a7f4b; --pick: #2456d6; }
+@media (prefers-color-scheme: dark) { :root { --bg: #171717; --panel: #222; --ink: #eee; --muted: #999; --line: #333; --them: #f0955a; --me: #5fd39a; --pick: #7aa2ff; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.65 -apple-system, "PingFang SC", sans-serif; }
+header { position: sticky; top: 0; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; z-index: 1; }
+header b { font-size: 15px; }
+.small { font-size: 12px; color: var(--muted); }
+main { max-width: 860px; margin: 0 auto; padding: 16px; }
+.ctx p { margin: 0 0 4px; color: var(--muted); font-size: 13px; }
+.ctx b, .blk b { margin-right: 6px; font-size: 12px; }
+.them { color: var(--them); } .me { color: var(--me); }
+.blk { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+.blk .tag { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.blk.new { border-color: var(--them); }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 8px; }
+button { font: inherit; padding: 6px 14px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; cursor: pointer; }
+button.on { border-color: var(--pick); color: var(--pick); font-weight: 600; }
+textarea { width: 100%; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
+nav { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+.dots { display: flex; flex-wrap: wrap; gap: 4px; }
+.dot { width: 14px; height: 14px; border-radius: 3px; background: var(--line); cursor: pointer; }
+.dot.done { background: var(--me); } .dot.cur { outline: 2px solid var(--pick); }
+details { margin-top: 10px; }
+</style>
+</head>
+<body>
+<header><b>新问题还是补充</b><span class="small" id="pos"></span><div class="dots" id="dots"></div></header>
+<main>
+  <div class="small">定义：<b>补充</b>＝并进上一张卡（还在问上一个问题：回答我的追问、换说法再问、加条件、给提示）；<b>新问题</b>＝开新卡；<b>不用答</b>＝附和、回答我的反问、给建议。键盘 1 2 3 4 选，← → 翻页。</div>
+  <details id="ctxbox" open><summary class="small">前文（最近 30 句）</summary><div class="ctx" id="ctx"></div></details>
+  <div class="blk"><div class="tag">上一张卡片：面试官上一轮</div><div id="prev"></div></div>
+  <div class="blk"><div class="tag">我中间说的</div><div id="mine" class="me"></div></div>
+  <div class="blk new"><div class="tag">面试官新这一轮 —— 判断它</div><div id="new"></div></div>
+  <div class="btns" id="btns"></div>
+  <textarea id="note" rows="2" placeholder="备注（可选，比如为什么这么标）"></textarea>
+  <nav><button id="prevBtn">← 上一处</button><button id="nextBtn">下一处 →</button><span class="small" id="saved"></span></nav>
+  <details><summary class="small">对照 Claude 的标签和模型三轮判断（建议自己标完再看）</summary><div id="cmp" class="small"></div></details>
+</main>
+<script>
+const OPTS = ["新问题", "补充", "不用答", "拿不准"];
+let D, i = 0;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+fetch("/data").then((r) => r.json()).then((d) => { D = d; const k = D.cases.findIndex((c) => !D.labels[c.id]); i = k < 0 ? 0 : k; render(); });
+function render() {
+  const c = D.cases[i], l = D.labels[c.id] || {};
+  $("pos").textContent = `${i + 1} / ${D.cases.length} · 录音 ${c.id} · 已标 ${Object.keys(D.labels).length}`;
+  $("ctx").innerHTML = c.history.map((h) => { const me = h.startsWith("候选人"); return `<p><b class="${me ? "me" : "them"}">${me ? "我" : "面试官"}</b>${esc(h.replace(/^(面试官|候选人)：/, ""))}</p>`; }).join("");
+  $("prev").textContent = c.prev_turn;
+  $("mine").textContent = c.mine_between || "（没说话）";
+  $("new").textContent = c.new_turn;
+  $("btns").innerHTML = OPTS.map((o, k) => `<button data-o="${o}" class="${l.label === o ? "on" : ""}">${k + 1}　${o}</button>`).join("");
+  $("btns").querySelectorAll("button").forEach((b) => b.onclick = () => pick(b.dataset.o));
+  $("note").value = l.note || "";
+  const x = D.extra[c.id] || {};
+  $("cmp").textContent = `Claude：${x.claude || "-"}　模型三轮：${(x.model || []).join(" / ") || "-"}`;
+  $("dots").innerHTML = D.cases.map((cc, k) => `<span class="dot ${D.labels[cc.id] ? "done" : ""} ${k === i ? "cur" : ""}" title="${cc.id}" data-k="${k}"></span>`).join("");
+  $("dots").querySelectorAll(".dot").forEach((el) => el.onclick = () => { i = +el.dataset.k; render(); });
+  $("saved").textContent = "";
+}
+async function save(label) {
+  const c = D.cases[i];
+  D.labels[c.id] = { label, note: $("note").value };
+  await fetch("/label", { method: "POST", body: JSON.stringify({ id: c.id, label, note: $("note").value }) });
+  $("saved").textContent = "已保存";
+}
+async function pick(o) { await save(o); if (i < D.cases.length - 1) i++; render(); }
+$("note").onchange = () => { const l = D.labels[D.cases[i].id]; if (l) save(l.label); };
+$("prevBtn").onclick = () => { if (i > 0) { i--; render(); } };
+$("nextBtn").onclick = () => { if (i < D.cases.length - 1) { i++; render(); } };
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "TEXTAREA") return;
+  if (["1", "2", "3", "4"].includes(e.key)) pick(OPTS[+e.key - 1]);
+  if (e.key === "ArrowLeft") $("prevBtn").click();
+  if (e.key === "ArrowRight") $("nextBtn").click();
+});
+</script>
+</body>
+</html>
